@@ -505,10 +505,10 @@ __name__ == "__main__"
 ):
     while True:
         _crawler = Crawler()
-        # openai.api_key ="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"
+        openai.api_key ="your open ai key"
 
         import os 
-        # os.environ["OPENAI_API_KEY"] = "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"
+        os.environ["OPENAI_API_KEY"] = "your openai key"
         import re
 
 
