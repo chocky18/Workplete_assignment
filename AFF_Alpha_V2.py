@@ -215,16 +215,25 @@ Your Answer:
 """
 class Crawler:
     def __init__(self):
-        self.browser = (
-            sync_playwright()
-            .start()
-            .chromium.launch(
-                headless=False,
-            )
-        )
+       try:
+           self.browser = (
+               sync_playwright()
+               .start()
+               .chromium.launch(
+                   headless=False,
+               )
+           )
 
-        self.page = self.browser.new_page()
+         self.page = self.browser.new_page()
+'''Adding closing browser'''
+      except Exception as e:
+         print(f"Error occurred during browser initialization: {e}")
+         raise
 
+   def close_browser(self):
+      self.browser.close()
+
+        
 
     def get_element_attributes(self,element_info):
         tag = element_info.get("tag")
