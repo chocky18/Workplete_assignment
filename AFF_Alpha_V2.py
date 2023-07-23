@@ -148,7 +148,7 @@ YOUR ANSWER: {"Accelerator":[{'Please select a programme':81,'Academic Accelerat
 EXAMPLE 3:
 ==================================================
 data:
-text: id="41" placeholder="Enter your How Did You Hear About Dreamit?"
+text: id="41" placeholder="Enter How Did You Hear About Dreamit?"
 text: id="42" value="How Did You Hear About Dreamit?"
 select: id="43" name="how_did_you_hear_about_dreamit_"
 option: id="44" value="Please Select"
@@ -498,6 +498,15 @@ class Crawler:
                 print("Unable to navigate back; no previous page in the history")
         except playwright._impl._api_types.TimeoutError:
             print("Navigation took too long!")
+
+
+   def getDirectTextContent(self, element):
+      text = ""
+      for node in element.childNodes:
+         if node.nodeType == 3:
+            text += node.textContent
+      return text.strip()
+
 
 
 if (
