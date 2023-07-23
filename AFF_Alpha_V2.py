@@ -1,3 +1,4 @@
+# Import necessary modules and libraries
 from sys import argv, exit, platform
 import openai
 import time
@@ -21,14 +22,21 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
 import pdfx
+
+# Initialize URL list and index for keeping track of URLs
 urlList=[]
 urlIndex=0
+
+# Initialize previous command list, a counter, and input data dictionary
 previous_command_list = ""
 num = 0
 input_data={}
 fileID=[]
+
+# Initialize a flag to check if an element has been clicked
 clicked =False
 
+# Drop-down prompt template
 drop_down_prompt_template ="""
 You have given drop_down_values which are option IDs with Values (option : <option_id>, Value: <option_value>) and a Sentence or word
 Find the most similar value in a list of dictionaries to the given word or sentence
@@ -73,6 +81,7 @@ Previous_Answer: $Previous_Answer
 Your Answer:
 """
 
+# Prompt template
 prompt_template = """
 Given a simplified HTML representation of a webpage, your task is to identify the appropriate mappings between input IDs and names, as well as text IDs and names within the HTML elements.
 
@@ -181,6 +190,7 @@ data:$data
 YOUR ANSWER:
 """
 
+# Text summarization prompt template
 Text_summarization_prompt_template ="""
 
 Summarize the given text into a concise answer.
@@ -213,8 +223,11 @@ Text Summarize it:
 Text: <input_text>
 Your Answer:
 """
+
+# Define the Crawler class to interact with web pages using Playwright.
 class Crawler:
     def __init__(self):
+        # Start the Playwright browser with Chromium and disable headless mode (visible browser window).
         self.browser = (
             sync_playwright()
             .start()
@@ -223,32 +236,47 @@ class Crawler:
             )
         )
 
+        # Create a new page for interacting with web content.
         self.page = self.browser.new_page()
 
+    def get_element_attributes(self, element_info):
+    # Function to extract relevant attributes from element information.
+    # This function processes the information obtained from the web page,
+    # filters out relevant attributes based on the element type, and returns
+    # a dictionary containing the relevant attributes along with the element's XPath.
 
-    def get_element_attributes(self,element_info):
-        tag = element_info.get("tag")
-        attrs = element_info.get("attributes", {})
-        value = element_info.get("value", "")
-        innerText = element_info.get("innerText", "")
-        xpath = element_info.get("xpath", "")
+        tag = element_info.get("tag")  # Get the tag name of the element.
+        attrs = element_info.get("attributes", {})  # Get all attributes of the element.
+        value = element_info.get("value", "")  # Get the value attribute of the element.
+        innerText = element_info.get("innerText", "")  # Get the inner text of the element.
+        xpath = element_info.get("xpath", "")  # Get the XPath of the element.
 
-        attr_dict = {}
+        attr_dict = {}  # Initialize a dictionary to store relevant attributes.
 
-        attr_dict = {attr: attrs[attr] for attr in ['value','type', 'title', 'placeholder', 'name', 'aria-label', 'role'] if attr in attrs and attrs[attr]}
+        # Determine relevant attributes based on the element's tag and attributes.
+        attr_dict = {attr: attrs[attr] for attr in ['value', 'type', 'title', 'placeholder', 'name', 'aria-label', 'role'] if attr in attrs and attrs[attr]}
 
+        # Handle special cases for elements like buttons, text areas, and options.
         if tag in ['button', 'textarea', 'option'] or attrs.get('role') in ['button', 'checkbox', 'radio'] or attr_dict.get('type') in ['submit', 'checkbox', 'radio']:
+            # If the element is a button, text area, or option, or if it has specific roles or types,
+            # use 'value' or 'innerText' as the relevant attribute if available.
             if value is None or value == "":
                 value = innerText
             if value is not None and value != "":
                 attr_dict['value'] = value
         elif (tag == 'input' and attrs.get('type') != 'submit') or attr_dict.get('role') == 'textbox':
+            # For input elements other than 'submit' and elements with the role 'textbox',
+            # use the 'value' attribute as the relevant attribute if available.
             value = attrs.get('value')
             if value is not None and value != "":
                 attr_dict['value'] = value
         else:
+            # For other elements, if the 'value' attribute is not empty or None,
+            # use it as the relevant attribute.
             if value is not None and value.strip():
                 attr_dict['value'] = value
+
+        # Return the element's XPath and the relevant attributes as a dictionary.
         return xpath, attr_dict
 
     def crawl(self):
@@ -341,42 +369,49 @@ class Crawler:
 
         
         def extract_elements(script, target_page, iframe_id=None):
-            elements_in_viewport = target_page.evaluate(script)
+        # Function to extract elements from the web page based on the given script.
+        # It processes the elements, extracts their attributes, and constructs strings
+        # representing their types and relevant attributes.
+
+            elements_in_viewport = target_page.evaluate(script)  # Evaluate the script on the target page to get elements in the viewport.
 
             for element_info in elements_in_viewport:
+                # Extract element attributes and check if it is visible and not hidden by CSS.
                 xpath, attr_dict = self.get_element_attributes(element_info)
                 display = element_info.get("computedStyle", {}).get("display")
                 isVisible = element_info.get("isVisible", True)
+
                 if attr_dict and display != "none" and isVisible:
+                    # Assign a unique ID to the element for identification.
                     attr_dict["id"] = id_counter[0]
                     tag = element_info.get("tag")
 
-                    # Construct a string for output
+                    # Construct a string representation for output, based on the element's type and attributes.
                     attr_str = ' '.join([f'id="{attr_dict["id"]}"'] + [f'{key}="{value}"' for key, value in attr_dict.items() if key not in ['id', 'role']])
                     if tag in ['button'] or attr_dict.get('role') in ['button'] or attr_dict.get('type') in ['submit']:
                         output_list.append(f"button: {attr_str}")
                     elif tag in ['select']:
-                            output_list.append(f"select: {attr_str}")
+                        output_list.append(f"select: {attr_str}")
                     elif tag in ['option']:
                         output_list.append(f"option: {attr_str}")
-                    elif(tag=='input' and attr_dict.get('type')=='radio'):
+                    elif tag == 'input' and attr_dict.get('type') == 'radio':
                         output_list.append(f"radio: {attr_str}")
-                    elif(tag=='input' and attr_dict.get('type')=='checkbox'):
+                    elif tag == 'input' and attr_dict.get('type') == 'checkbox':
                         output_list.append(f"checkbox: {attr_str}")
-                    elif (tag == 'input' and attr_dict.get('type') != 'submit') or tag == 'textarea' or attr_dict.get('role') == 'textbox':
+                    elif tag == 'input' and attr_dict.get('type') != 'submit' or tag == 'textarea' or attr_dict.get('role') == 'textbox':
                         output_list.append(f"input: {attr_str}")
                     # elif tag == 'a' or attr_dict.get('role') in ['link']:
                         # output_list.append(f"link: {attr_str}")
                     else:
                         output_list.append(f"text: {attr_str}")
 
-                    if iframe_id!=None:
+                    if iframe_id is not None:
                         xpath = f"{iframe_id}{xpath}"
                     xpath_dict[xpath] = attr_dict
 
                     id_counter[0] += 1
 
-                    # If the element is an iframe, handle its content immediately
+                    # If the element is an iframe, handle its content recursively.
                     if tag == 'iframe':
                         iframe_element = target_page.query_selector(f'xpath={xpath}')
                         if iframe_element:
@@ -397,38 +432,44 @@ class Crawler:
         return output_list, xpath_dict,iframes_list
     
 
-    def get_xpath_by_id(self,id,xpath_dict):
+    def get_xpath_by_id(self, id, xpath_dict):
+    # Find the XPath of an element based on its ID from the `xpath_dict`.
+    # `xpath_dict` is a dictionary that maps XPaths to element attributes.
         for xpath, attrs in xpath_dict.items():
             if attrs.get('id') == id:
-                return xpath 
+                return xpath
         return None
 
-    def get_iframe_by_xpath(self,xpath, iframes_list):
-        iframe_id = xpath.split("/")[0]  # extract the iframe_id from the xpath
-        if iframe_id:  # check if iframe_id is not an empty string
+    def get_iframe_by_xpath(self, xpath, iframes_list):
+        # Retrieve the iframe content by its XPath from the `iframes_list`.
+        # `iframes_list` is a list of tuples containing iframe ID and its content.
+        iframe_id = xpath.split("/")[0]  # Extract the iframe_id from the XPath.
+        if iframe_id:
             for id, frame in iframes_list:
                 if id == int(iframe_id):
                     return frame
         return None
 
-    def click_element(self,id, xpath_dict, iframes_list):
+    def click_element(self, id, xpath_dict, iframes_list):
+        # Click on an element identified by its ID.
         xpath = self.get_xpath_by_id(id, xpath_dict)
         frame = self.get_iframe_by_xpath(xpath, iframes_list)
+        # If the element is within an iframe, click on it within the iframe context.
+        # Otherwise, click on the element directly on the current page.
         if frame:
-            # remove the iframe_id from the xpath
-            xpath = re.sub(r'^\d+/', '/', xpath)
+            xpath = re.sub(r'^\d+/', '/', xpath)  # Remove the iframe_id from the xpath.
             if xpath.split('/')[-1].startswith('option'):
-                # If the element is an option, get its parent select element and select the option
+                # If the element is an option, find its parent select element and select the option.
                 select_xpath = '/'.join(xpath.split('/')[:-1])
                 select_element = frame.query_selector(f'xpath={select_xpath}')
                 option_element = frame.query_selector(f'xpath={xpath}')
                 value = option_element.get_attribute('value')
                 select_element.select_option(value)
             else:
-                frame.click(f'xpath={xpath}')  
+                frame.click(f'xpath={xpath}')
         else:
             if xpath.split('/')[-1].startswith('option'):
-                # If the element is an option, get its parent select element and select the option
+                # If the element is an option, find its parent select element and select the option.
                 select_xpath = '/'.join(xpath.split('/')[:-1])
                 select_element = self.page.query_selector(f'xpath={select_xpath}')
                 option_element = self.page.query_selector(f'xpath={xpath}')
@@ -437,31 +478,34 @@ class Crawler:
             else:
                 self.page.click(f'xpath={xpath}')
 
-    def type_into_element(self,id, xpath_dict, iframes_list, text):
+    def type_into_element(self, id, xpath_dict, iframes_list, text):
+        # Type text into an input element identified by its ID.
         xpath = self.get_xpath_by_id(id, xpath_dict)
-        frame = self.get_iframe_by_xpath(xpath,iframes_list)
+        frame = self.get_iframe_by_xpath(xpath, iframes_list)
+        # If the input element is within an iframe, type text within the iframe context.
+        # Otherwise, type text directly into the input element on the current page.
         if frame:
-            # remove the iframe_id from the xpath
-            xpath = re.sub(r'^\d+/', '/', xpath)
-            frame.fill(f'xpath={xpath}',text)   
+            xpath = re.sub(r'^\d+/', '/', xpath)  # Remove the iframe_id from the xpath.
+            frame.fill(f'xpath={xpath}', text)
         else:
             self.page.fill(f'xpath={xpath}', text)
 
-
-    def type_and_submit(self,xpath_dict, iframes_list,id, text):
+    def type_and_submit(self, xpath_dict, iframes_list, id, text):
+        # Type text into an input element identified by its ID and submit the form.
         xpath = self.get_xpath_by_id(id, xpath_dict)
-        frame = self.get_iframe_by_xpath(xpath,iframes_list)
+        frame = self.get_iframe_by_xpath(xpath, iframes_list)
+        # If the input element is within an iframe, type text and submit within the iframe context.
+        # Otherwise, type text into the input element on the current page and press "Enter" to submit.
         if frame:
-            # remove the iframe_id from the xpath
-            xpath = re.sub(r'^\d+/', '/', xpath)
-            frame.fill(f'xpath={xpath}',text)   
-            frame.press(f'xpath={xpath}','Enter')
+            xpath = re.sub(r'^\d+/', '/', xpath)  # Remove the iframe_id from the xpath.
+            frame.fill(f'xpath={xpath}', text)
+            frame.press(f'xpath={xpath}', 'Enter')
         else:
             self.page.fill(f'xpath={xpath}', text)
-            self.page.press(f'xpath={xpath}','Enter')
-
+            self.page.press(f'xpath={xpath}', 'Enter')
 
     def scroll_up(self):
+        # Scroll up the page by one viewport height.
         current_scroll_position = self.page.evaluate('window.pageYOffset')
         viewport_height = self.page.viewport_size['height']
         new_scroll_position = max(current_scroll_position - viewport_height, 0)
@@ -469,6 +513,7 @@ class Crawler:
 
 
     def scroll_down(self):
+        # Scroll down the page by one viewport height.
         current_scroll_position = self.page.evaluate('window.pageYOffset')
         viewport_height = self.page.viewport_size['height']
         new_scroll_position = current_scroll_position + viewport_height
@@ -476,6 +521,7 @@ class Crawler:
 
 
     def goToURL(self,url):
+        # Navigate to a given URL.
         try:
             response = self.page.goto(url=url, timeout=0)
             self.page.wait_for_load_state()
@@ -486,6 +532,7 @@ class Crawler:
 
 
     def goPageBack(self):
+        # Go back to the previous page in the browser history.
         try:
             response = self.page.go_back(timeout=60000)
             self.page.wait_for_load_state()
@@ -500,19 +547,24 @@ class Crawler:
             print("Navigation took too long!")
 
 
-if (
-__name__ == "__main__"
-):
+if __name__ == "__main__":
+    # The main script starts here and runs in an infinite loop until manually terminated.
+
     while True:
+        # Create a new instance of the Crawler class.
         _crawler = Crawler()
+        # Set OpenAI API key using the environment variable.
         openai.api_key ="your open ai key"
 
-        import os 
+        import os
         os.environ["OPENAI_API_KEY"] = "your openai key"
         import re
 
+        # The following functions help in providing user instructions, getting the number of tokens in a text string,
+        # getting GPT-4 commands for drop-down options, and performing text summarization using GPT-4.
 
         def print_help():
+            # Print available commands and options.
             print(
                 "(g) to visit url\n(u) scroll up\n(d) scroll down\n(c) to click\n(t) to type\n" +
                 "(h) to view commands again\n(r/enter) to run suggested command\n(o) change objective"
@@ -520,39 +572,41 @@ __name__ == "__main__"
 
 
         def num_tokens_from_string(string: str, encoding_name: str) -> int:
-            """Returns the number of tokens in a text string."""
+            # Returns the number of tokens in a text string.
             encoding = tiktoken.encoding_for_model(encoding_name)
             num_tokens = len(encoding.encode(string))
             return num_tokens
-        
+
         def get_gpt_command(string_data):
+            # Generates GPT-4 command based on the given string data.
             prompt = prompt_template
             prompt = prompt.replace("$data", string_data)
             response = openai.ChatCompletion.create(
-                model="gpt-4", messages=[{"role": "system", "content": prompt}, {"role": "user", "content": "YOUR ANSWER: "}])
-
+                model="gpt-4", messages=[{"role": "system", "content": prompt}, {"role": "user", "content": "YOUR ANSWER: "}]
+            )
             input_string = response["choices"][0]["message"]["content"]
             return input_string
 
-
-        def gpt_for_drop_down(optiondata ,Previous_Answer):
+        def gpt_for_drop_down(optiondata, Previous_Answer):
+            # Generates GPT-4 command for drop-down options based on the given option data and previous answer.
             prompt = drop_down_prompt_template
             prompt = prompt.replace("$Previous_Answer", Previous_Answer)
             prompt = prompt.replace("$data", str(optiondata))
-            print("options_in_gpt_command",optiondata)
+            print("options_in_gpt_command", optiondata)
             print("Previous answer", Previous_Answer)
             response = openai.ChatCompletion.create(
-                model="gpt-4", messages=[{"role": "system", "content": prompt}, {"role": "user", "content": "YOUR ANSWER: "}])
-
+                model="gpt-4", messages=[{"role": "system", "content": prompt}, {"role": "user", "content": "YOUR ANSWER: "}]
+            )
             input_string = response["choices"][0]["message"]["content"]
             return input_string
-        
+
         def gpt_for_text_summarization(Text):
+            # Performs text summarization using GPT-4 based on the given text.
             prompt = Text_summarization_prompt_template
             prompt = prompt.replace("<input_text>", Text)
             response = openai.ChatCompletion.create(
-                model="gpt-4", messages=[{"role": "system", "content": prompt}, {"role": "user", "content": "YOUR ANSWER: "}])
-
+                model="gpt-4", messages=[{"role": "system", "content": prompt}, {"role": "user", "content": "YOUR ANSWER: "}]
+            )
             input_string = response["choices"][0]["message"]["content"]
             return input_string
         
@@ -560,24 +614,33 @@ __name__ == "__main__"
             def __init__(self):
                 super().__init__()
                 self.setWindowTitle("Workplete")
+
+                # Set window flags to create a frameless window and keep it on top of other windows.
                 self.setWindowFlag(Qt.WindowStaysOnTopHint)
                 self.setWindowFlag(Qt.FramelessWindowHint)
+
+                # Set the fixed size of the window
                 self.setFixedSize(400, 200)
+
+                # Variables for handling drag and resize behavior.
                 self.draggable = False
                 self.dragging = False
                 self.drag_start_position = None
                 self.offset = QPoint()
-                self.resize_handle_size=20 
+                self.resize_handle_size=20 # Size of the resize handles.
 
             def mousePressEvent(self, event):
+                # Override the mouse press event to handle dragging of the window.
                 if event.button() == Qt.LeftButton:
                     self.dragging = True
                     self.drag_start_position = event.globalPos()
 
             def mouseMoveEvent(self, event):
+                # Override the mouse move event to handle dragging and resizing of the window.
                 if self.dragging:
                     delta = event.globalPos() - self.drag_start_position
 
+                    # Check if the mouse is over any of the resize handles.
                     if (
                         event.pos().x() < self.resize_handle_size
                         and event.pos().y() < self.resize_handle_size
@@ -606,18 +669,23 @@ __name__ == "__main__"
                         self.resize(self.width() + delta.x(),
                                     self.height() + delta.y())
                     else:
+                        # If not resizing, move the window.
                         self.move(self.x() + delta.x(), self.y() + delta.y())
 
                     self.drag_start_position = event.globalPos()
 
             def mouseReleaseEvent(self, event):
+                # Override the mouse release event to stop dragging.
                 if event.button() == Qt.LeftButton:
                     self.dragging = False
 
+            # Function to get the resize handle at the specified position 'pos'.
+            # The function checks the position relative to the window boundaries and returns the corresponding resize handle.
             def getResizeHandleAt(self, pos):
                 handle_size = self.resize_handle_size
-                rect = self.rect()
+                rect = self.rect()  # Get the dimensions of the custom main window.
 
+                # Check if the position 'pos' falls within the area of each resize handle and return the corresponding handle name.
                 if QRect(0, 0, handle_size, handle_size).contains(pos):
                     return "TopLeft"
                 elif QRect(rect.width() - handle_size, 0, handle_size, handle_size).contains(pos):
@@ -635,19 +703,22 @@ __name__ == "__main__"
                 elif QRect(handle_size, rect.height() - handle_size, rect.width() - 2 * handle_size, handle_size).contains(pos):
                     return "Bottom"
 
-                return None
+                return None  # If the position 'pos' does not fall within any resize handle area, return None.
 
+            # Function to get the cursor type based on the resize handle name.
             def getResizeCursor(self, handle):
                 if handle in ["TopLeft", "BottomRight"]:
-                    return Qt.SizeFDiagCursor
+                    return Qt.SizeFDiagCursor  # Diagonal resize cursor for TopLeft and BottomRight handles.
                 elif handle in ["TopRight", "BottomLeft"]:
-                    return Qt.SizeBDiagCursor
+                    return Qt.SizeBDiagCursor  # Diagonal resize cursor for TopRight and BottomLeft handles.
                 elif handle in ["Left", "Right"]:
-                    return Qt.SizeHorCursor
+                    return Qt.SizeHorCursor  # Horizontal resize cursor for Left and Right handles.
                 elif handle in ["Top", "Bottom"]:
-                    return Qt.SizeVerCursor
+                    return Qt.SizeVerCursor  # Vertical resize cursor for Top and Bottom handles.
 
-                return Qt.ArrowCursor
+                return Qt.ArrowCursor  # Default cursor for other cases (not resizing).
+
+            # Methods for resizing the window in different directions:
 
             def resizeTop(self, pos):
                 handle_size = self.resize_handle_size
@@ -684,6 +755,7 @@ __name__ == "__main__"
                     self.resize(new_width, self.height())
 
             def is_resizable_area(self, pos):
+                # Check if the mouse position is over any of the resize handles.
                 width = self.width()
                 height = self.height()
                 return (
@@ -694,6 +766,7 @@ __name__ == "__main__"
                 )
 
             def get_resize_direction(self, pos):
+                # Get the direction of resizing based on the mouse position.
                 width = self.width()
                 height = self.height()
                 if pos.x() <= self.resize_handle_size and pos.y() <= self.resize_handle_size:
@@ -715,8 +788,9 @@ __name__ == "__main__"
                 else:
                     return None
 
-
+        # Function to create the main application window and handle user interactions
         def create_window():
+            # Function to load a PDF, DOC, or CSV file and process it for text retrieval
             def load_file():
                 file_dialog = QFileDialog()
                 file_path, _ = file_dialog.getOpenFileName(window, 'Select File', '', 'PDF Files (*.pdf);;DOC Files (*.doc *.docx);;CSV Files (*.csv)')
@@ -750,6 +824,7 @@ __name__ == "__main__"
                     # Handle the case when the user cancels file selection
                     return None
             
+            # Function to extract information from a PDF file
             def pdf_extract():
                 file_dialog = QFileDialog()
                 file_path, _ = file_dialog.getOpenFileName(window, 'Select File', '', 'PDF Files (*.pdf);;DOC Files (*.doc *.docx);;CSV Files (*.csv)')
@@ -763,6 +838,7 @@ __name__ == "__main__"
                 url_input.setText(urlList[urlIndex])
                 on_submit_clicked()
             
+            # Function to handle interactions when a PDF-related action is required
             def pdfCall():
                 urlIndex+=1
                 url_input.clear() 
@@ -770,7 +846,7 @@ __name__ == "__main__"
                 on_submit_clicked()
                     
 
-                       
+            # Function to handle interactions when the user clicks the "Submit" button           
             def on_submit_clicked():
                 url = url_input.text()  # Get the URL from the input box
                 if url:
@@ -852,7 +928,8 @@ __name__ == "__main__"
                 
                             _crawler.scroll_down()
                             time.sleep(5)
-                                        
+
+            # Create the main application                            
             app = QApplication(sys.argv)
 
             # Create the main window
@@ -918,8 +995,10 @@ __name__ == "__main__"
             # Show the window
             window.show()
             sys.exit(app.exec_())
+        # Initialize the Crawler instance
         _crawler.goToURL("https://www.google.com/")
         try:
+            # Call the create_window function to start the GUI application
             create_window()
         except KeyboardInterrupt:
             print("\n[!] Ctrl+C detected, exiting gracefully.")
